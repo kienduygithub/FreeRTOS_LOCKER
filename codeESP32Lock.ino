@@ -38,6 +38,8 @@ byte rowPins[ROWS] = { 13, 12, 14, 27 };
 byte colPins[COLS] = { 26, 25, 33 };
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
+#define PASSWORD_LENGTH_ADDR 245 // Địa chỉ để lưu độ dài mật khẩu
+const int PASSWORD_ADDR = 246; // Địa chỉ bắt đầu lưu mật khẩu trong EEPROM
 char key_code[7]; 
 char new_pass[7]; 
 char password[7] = "111111"; 
@@ -102,6 +104,10 @@ void setup(){
     LoadRFIDFromEEPROM(ID_CARD_PASS[i], i);
   }
 
+  // Kiểm tra xem có mật khẩu trong EEPROM không
+  int lengthPasswordStored = EEPROM.read(PASSWORD_LENGTH_ADDR);
+  if(lengthPasswordStored > 0) readPasswordFromEEPROM();
+
   commandQueue = xQueueCreate(1, sizeof(char));
   xSemaphoreStartProgram = xSemaphoreCreateMutex();
   xTaskCreate(HandleButtonTask, "HandleButtonTask", 1280, NULL, 1, NULL);
@@ -126,6 +132,7 @@ bool InsertCardMode = false;
 bool RemoveCardMode = false;
 bool ChangeCardMode = false;
 bool UnLockEnabled = false;
+
 bool CanAccess = false;
 
 void loop(){
@@ -290,7 +297,9 @@ void handleChangePassWord(char key)
       lcd.setCursor(0, 0);
       lcd.print(" Wrong Password");
       vTaskDelay(pdMS_TO_TICKS(1500));
-      UpdateLCD = true;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Choose Options");
     }
     memset(key_code, 0, sizeof(key_code));
     ChangePassMode = false;
@@ -313,6 +322,7 @@ void handleEnterPassword(char key)
     if(EnterNewPassMode)
     {
       strcpy(password, key_code);
+      savePasswordToEEPROM(password);
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print(" Change Succeed");
@@ -711,4 +721,53 @@ int GetCurrentTotalCardStored()
     if(ID_CARD_PASS[i] != 0xFFFFFFFF) total++;
   }
   return total;
+}
+
+void savePasswordToEEPROM(const char* pass)
+{
+  clearPasswordFromEEPROM();
+  // Lấy độ dài của mật khẩu
+  int length = strlen(pass);
+
+  // Lưu độ dài của mật khẩu tại địa chỉ PASSWORD_LENGTH_ADDR
+  EEPROM.write(PASSWORD_LENGTH_ADDR, length);
+
+  // Lưu từng ký tự của mật khẩu vào EEPROM, bắt đầu từ địa chỉ PASSWORD_ADDR
+  for (int i = 0; i < length; i++)
+  {
+      EEPROM.write(PASSWORD_ADDR + i, pass[i]);
+  }
+
+  // Ghi thay đổi vào EEPROM
+  EEPROM.commit();
+
+  Serial.println("Password saved to EEPROM");
+}
+
+void readPasswordFromEEPROM()
+{
+    // Đọc độ dài của mật khẩu từ EEPROM
+    int length = EEPROM.read(PASSWORD_LENGTH_ADDR);
+
+    // Đọc từng ký tự của mật khẩu từ EEPROM và lưu vào biến password
+    for (int i = 0; i < length; i++)
+    {
+        password[i] = EEPROM.read(PASSWORD_ADDR + i);
+    }
+
+    // Thêm ký tự kết thúc chuỗi
+    password[length] = '\0';
+
+    Serial.println("Password read from EEPROM: ");
+    Serial.println(password);
+}
+
+void clearPasswordFromEEPROM() {
+  // Xóa độ dài mật khẩu
+  EEPROM.write(PASSWORD_LENGTH_ADDR, 0);
+  // Xóa các byte của mật khẩu
+  for (int i = PASSWORD_ADDR; i < PASSWORD_ADDR + 6; i++) {
+    EEPROM.write(i, 0);
+  }
+  EEPROM.commit();
 }
